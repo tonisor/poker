@@ -1,3 +1,4 @@
+#include <cstdint>
 #include <stdio.h>
 #include <stdlib.h>
 #include <Windows.h>
@@ -6,38 +7,257 @@
 
 #include "ThreadHelper.h"
 #include "math.h"
+#include "Chronometer.h"
 
-typedef unsigned char byte;
+#include <vector>
+#include <algorithm>
+#include <cassert>
 
 #define MIN(a,b) ( (a) < (b) ? (a) : (b) )
 #define MAX(a,b) ( (a) > (b) ? (a) : (b) )
 #define ABS(a) ( (a) > 0 ? (a) : -(a) )
 
-typedef enum{
-	THighCard = 0,
-	TOnePair = 1,
-	TTwoPair = 2,
-	TThreeOfAKind = 3,
-	TStraight = 4,
-	TFlush = 5,
-	TFullHouse = 6,
-	TFourOfAKind = 7,
-	TStraightFlush = 8
-} HandType;
+enum class CardValue : uint8_t
+{
+	Deuce = 0,
+	Three,
+	Four,
+	Five,
+	Six,
+	Seven,
+	Eight,
+	Nine,
+	Ten,
+	Jack,
+	Queen,
+	King,
+	Ace,
+
+	Count
+};
+
+enum class CardColor : uint8_t
+{
+	Spade,
+	Heart,
+	Diamond,
+	Club,
+
+	Count
+};
+
+enum class HandType : uint8_t
+{
+	HighCard,
+	OnePair,
+	TwoPair,
+	ThreeOfAKind,
+	Straight,
+	Flush,
+	FullHouse,
+	FourOfAKind,
+	StraightFlush
+};
+
+CardColor CharToCardColor(char c)
+{
+	switch (c)
+	{
+	case 's':
+	case 'S': return CardColor::Spade;
+	case 'h':
+	case 'H': return CardColor::Heart;
+	case 'd':
+	case 'D': return CardColor::Diamond;
+	case 'c':
+	case 'C': return CardColor::Club;
+	default:
+		return static_cast<CardColor>(-1);
+	}
+}
+
+CardValue CharToCardValue(char c)
+{
+	switch (c)
+	{
+	case '2': return CardValue::Deuce;
+	case '3': return CardValue::Three;
+	case '4': return CardValue::Four;
+	case '5': return CardValue::Five;
+	case '6': return CardValue::Six;
+	case '7': return CardValue::Seven;
+	case '8': return CardValue::Eight;
+	case '9': return CardValue::Nine;
+	case '0': return CardValue::Ten;
+	case 'j':
+	case 'J': return CardValue::Jack;
+	case 'q':
+	case 'Q': return CardValue::Queen;
+	case 'k':
+	case 'K': return CardValue::King;
+	case 'a':
+	case 'A': return CardValue::Ace;
+	default:
+		return static_cast<CardValue>(-1);
+	}
+}
+
+struct Card
+{
+	Card() : color(CardColor::Spade), value(CardValue::Deuce) {}
+	Card(uint8_t v) : color(static_cast<CardColor>(v & 3)), value(static_cast<CardValue>(v >> 2)) {}
+	Card(const char* card) : color(CharToCardColor(card[1])), value(CharToCardValue(card[0])) {}
+	CardColor color : 2;
+	CardValue value : 4;
+	bool operator<(Card c) const
+	{
+		return value < c.value;
+	}
+	bool operator==(Card c) const
+	{
+		return color == c.color && value == c.value;
+	}
+	std::string ToString() const
+	{
+		std::string s;
+		switch (value)
+		{
+		case CardValue::Deuce: s += "2"; break;
+		case CardValue::Three: s += "3"; break;
+		case CardValue::Four: s += "4"; break;
+		case CardValue::Five: s += "5"; break;
+		case CardValue::Six: s += "6"; break;
+		case CardValue::Seven: s += "7"; break;
+		case CardValue::Eight: s += "8"; break;
+		case CardValue::Nine: s += "9"; break;
+		case CardValue::Ten: s += "10"; break;
+		case CardValue::Jack: s += "J"; break;
+		case CardValue::Queen: s += "Q"; break;
+		case CardValue::King: s += "K"; break;
+		case CardValue::Ace: s += "A"; break;
+		}
+		switch (color)
+		{
+		case CardColor::Spade: s += "s"; break;
+		case CardColor::Heart: s += "h"; break;
+		case CardColor::Diamond: s += "d"; break;
+		case CardColor::Club: s += "c"; break;
+		}
+		return s;
+	}
+};
+
+std::string ToString(const Card* cards, int numCards, bool reverse = true)
+{
+	std::string s;
+	if (reverse)
+	{
+		for (int32_t i = numCards; i--;)
+		{
+			s += cards[i].ToString();
+			if (i > 0)
+			{
+				s += ", ";
+			}
+		}
+	}
+	else
+	{
+		for (int32_t i = 0; i < numCards; ++i)
+		{
+			s += cards[i].ToString();
+			if (i < numCards - 1)
+			{
+				s += ", ";
+			}
+		}
+	}
+	return s;
+}
+
+std::string ToString(HandType type)
+{
+	switch (type)
+	{
+	case HandType::HighCard: return "HighCard";
+	case HandType::OnePair: return "OnePair";
+	case HandType::TwoPair: return "TwoPair";
+	case HandType::ThreeOfAKind: return "ThreeOfAKind";
+	case HandType::Straight: return "Straight";
+	case HandType::Flush: return "Flush";
+	case HandType::FullHouse: return "FullHouse";
+	case HandType::FourOfAKind: return "FourOfAKind";
+	case HandType::StraightFlush: return "StraightFlush";
+	}
+	return "";
+}
 
 char* g_den[9] = {"HighCard", "OnePair", "TwoPair", "ThreeOfAKind", "Straight", "Flush", "FullHouse", "FourOfAKind", "StraightFlush"};
 
-bool CardLess( byte c1, byte c2 ){
+bool CardLess(uint8_t c1, uint8_t c2)
+{
 	return c1 < c2;
 }
 
-HandType GetHandType( byte cards[5] ){
-	byte color = cards[0] & 3;
-	if( color == (cards[1] & 3) && color == (cards[2] & 3) && color == (cards[3] & 3) && color == (cards[4] & 3) ){
+HandType GetHandType(const Card cards[5])
+{
+	if (cards[0].color == cards[1].color &&
+		cards[0].color == cards[2].color &&
+		cards[0].color == cards[3].color &&
+		cards[0].color == cards[4].color)
+	{
+		//hand is Flush or StraightFlush
+		if ((static_cast<uint8_t>(cards[4].value) - static_cast<uint8_t>(cards[0].value) == 4) ||
+			(cards[4].value == CardValue::Ace && cards[3].value == CardValue::Five))
+			return HandType::StraightFlush;
+		return HandType::Flush;
+	}
+	uint8_t nmaxofakind = 1;
+	uint8_t cons = 1;
+	for (uint8_t i = 1; i < 5; i++)
+		if (cards[i].value == cards[i - 1].value)
+			cons++;
+		else {
+			if (nmaxofakind < cons)
+				nmaxofakind = cons;
+			cons = 1;
+		}
+		if (nmaxofakind < cons)
+			nmaxofakind = cons;
+		if (nmaxofakind == 4)
+			return HandType::FourOfAKind;
+		if (nmaxofakind == 3) {
+			// hand is FullHouse or ThreeOfAKind
+			if ((cards[0].value == cards[1].value) && (cards[3].value == cards[4].value))
+				return HandType::FullHouse;
+			return HandType::ThreeOfAKind;
+		}
+		if (nmaxofakind == 2) {
+			//hand is TwoPair or OnePair
+			uint8_t nequals = 0;
+			for (uint8_t i = 1; i < 5; i++)
+				if (cards[i].value == cards[i - 1].value)
+					nequals++;
+			if (nequals & 1)
+				return HandType::OnePair;
+			return HandType::TwoPair;
+		}
+		//hand is HighCard or Straight
+		if ((static_cast<uint8_t>(cards[4].value) - static_cast<uint8_t>(cards[0].value) == 4) ||
+			(cards[4].value == CardValue::Ace && cards[3].value == CardValue::Five))
+			return HandType::Straight;
+		return HandType::HighCard;
+}
+
+HandType GetHandType(uint8_t cards[5])
+{
+	uint8_t color = cards[0] & 3;
+	if (color == (cards[1] & 3) && color == (cards[2] & 3) && color == (cards[3] & 3) && color == (cards[4] & 3))
+	{
 		//hand is Flush or StraightFlush
 		if( ((cards[4] >> 2) - (cards[0] >> 2) == 4) || ((cards[4] >> 2 == 12) && (cards[3] >> 2 == 3)) )
-			return TStraightFlush;
-		return TFlush;
+			return HandType::StraightFlush;
+		return HandType::Flush;
 	}
 	byte nmaxofakind = 1;
 	byte cons = 1;
@@ -52,12 +272,12 @@ HandType GetHandType( byte cards[5] ){
 	if(nmaxofakind < cons)
 		nmaxofakind = cons;
 	if( nmaxofakind == 4 )
-		return TFourOfAKind;
+		return HandType::FourOfAKind;
 	if( nmaxofakind == 3 ){
 		// hand is FullHouse or ThreeOfAKind
 		if( (cards[0] >> 2 == cards[1] >> 2) && (cards[3] >> 2 == cards[4] >> 2) )
-			return TFullHouse;
-		return TThreeOfAKind;
+			return HandType::FullHouse;
+		return HandType::ThreeOfAKind;
 	}
 	if( nmaxofakind == 2 ){
 		//hand is TwoPair or OnePair
@@ -66,13 +286,13 @@ HandType GetHandType( byte cards[5] ){
 			if( cards[i] >> 2 == cards[i-1] >> 2 )
 				nequals++;
 		if( nequals & 1 )
-			return TOnePair;
-		return TTwoPair;
+			return HandType::OnePair;
+		return HandType::TwoPair;
 	}
 	//hand is HighCard or Straight
 	if( ((cards[4] >> 2) - (cards[0] >> 2) == 4) || ((cards[4] >> 2 == 12) && (cards[3] >> 2 == 3)) )
-		return TStraight;
-	return THighCard;
+		return HandType::Straight;
+	return HandType::HighCard;
 }
 
 int CompareHands( byte hand1[5], byte hand2[5] )
@@ -87,7 +307,7 @@ int CompareHands( byte hand1[5], byte hand2[5] )
 
 	byte v1, v2;
 
-	if( ht1 == TStraightFlush || ht1 == TStraight ){
+	if( ht1 == HandType::StraightFlush || ht1 == HandType::Straight ){
 		v1 = hand1[0] >> 2;
 		v2 = hand2[0] >> 2;
 		if( v1 > v2 )
@@ -97,7 +317,7 @@ int CompareHands( byte hand1[5], byte hand2[5] )
 		return 0;
 	}
 
-	if( ht1 == TFourOfAKind || ht1 == TFullHouse ){
+	if( ht1 == HandType::FourOfAKind || ht1 == HandType::FullHouse ){
 		v1 = hand1[2] >> 2;
 		v2 = hand2[2] >> 2;
 		if( v1 > v2 )
@@ -119,7 +339,7 @@ int CompareHands( byte hand1[5], byte hand2[5] )
 		return 0;
 	}
 
-	if( ht1 == TFlush ){
+	if( ht1 == HandType::Flush ){
 		byte i = 4;
 		v1 = hand1[i] >> 2;
 		v2 = hand2[i] >> 2;
@@ -135,7 +355,7 @@ int CompareHands( byte hand1[5], byte hand2[5] )
 		return 0;
 	}
 
-	if( ht1 == TThreeOfAKind ){
+	if( ht1 == HandType::ThreeOfAKind ){
 		v1 = hand1[2] >> 2;
 		v2 = hand2[2] >> 2;
 		if( v1 > v2 )
@@ -172,7 +392,7 @@ int CompareHands( byte hand1[5], byte hand2[5] )
 		return 0;
 	}
 
-	if( ht1 == TTwoPair ){
+	if( ht1 == HandType::TwoPair ){
 		v1 = hand1[3] >> 2;
 		v2 = hand2[3] >> 2;
 		if( v1 > v2 )
@@ -207,7 +427,7 @@ int CompareHands( byte hand1[5], byte hand2[5] )
 		return 0;
 	}
 
-	if( ht1 == TOnePair ){
+	if( ht1 == HandType::OnePair ){
 		byte i1 = 0, i2 = 0;
 		while( i1 < 4 ){
 			if( (hand1[i1] >> 2) == (hand1[i1+1] >> 2) )
@@ -256,13 +476,208 @@ int CompareHands( byte hand1[5], byte hand2[5] )
 		return 0;
 	}
 
-	if( ht1 == THighCard ){
-		for( byte i = 4; i >= 0; i-- ){
+	if( ht1 == HandType::HighCard ){
+		for (int32_t i = 5; i--;) {
 			v1 = hand1[i] >> 2;
 			v2 = hand2[i] >> 2;
 			if( v1 > v2 )
 				return 1;
 			if( v1 < v2 )
+				return -1;
+		}
+
+		return 0;
+	}
+}
+
+int CompareHands(const Card hand1[5], const Card hand2[5])
+{
+	HandType ht1 = GetHandType(hand1);
+	HandType ht2 = GetHandType(hand2);
+
+	if (ht1 > ht2)
+		return 1;
+	if (ht1 < ht2)
+		return -1;
+
+	CardValue v1, v2;
+
+	if (ht1 == HandType::StraightFlush || ht1 == HandType::Straight) {
+		v1 = hand1[0].value;
+		v2 = hand2[0].value;
+		if (v1 > v2)
+			return 1;
+		if (v1 < v2)
+			return -1;
+		return 0;
+	}
+
+	if (ht1 == HandType::FourOfAKind || ht1 == HandType::FullHouse) {
+		v1 = hand1[2].value;
+		v2 = hand2[2].value;
+		if (v1 > v2)
+			return 1;
+		if (v1 < v2)
+			return -1;
+		if ((hand1[4].value) == v1)
+			v1 = hand1[0].value;
+		else
+			v1 = hand1[4].value;
+		if ((hand2[4].value) == v2)
+			v2 = hand2[0].value;
+		else
+			v2 = hand2[4].value;
+		if (v1 > v2)
+			return 1;
+		if (v1 < v2)
+			return -1;
+		return 0;
+	}
+
+	if (ht1 == HandType::Flush) {
+		byte i = 4;
+		v1 = hand1[i].value;
+		v2 = hand2[i].value;
+		while (v1 == v2 && i > 0) {
+			i--;
+			v1 = hand1[i].value;
+			v2 = hand2[i].value;
+		}
+		if (v1 > v2)
+			return 1;
+		if (v1 < v2)
+			return -1;
+		return 0;
+	}
+
+	if (ht1 == HandType::ThreeOfAKind) {
+		v1 = hand1[2].value;
+		v2 = hand2[2].value;
+		if (v1 > v2)
+			return 1;
+		if (v1 < v2)
+			return -1;
+
+		if ((hand1[2].value) != (hand1[4].value))
+			v1 = hand1[4].value;
+		else
+			v1 = hand1[1].value;
+		if ((hand2[2].value) != (hand2[4].value))
+			v2 = hand2[4].value;
+		else
+			v2 = hand2[1].value;
+		if (v1 > v2)
+			return 1;
+		if (v1 < v2)
+			return -1;
+
+		if ((hand1[2].value) != (hand1[0].value))
+			v1 = hand1[0].value;
+		else
+			v1 = hand1[3].value;
+		if ((hand2[2].value) != (hand2[0].value))
+			v2 = hand2[0].value;
+		else
+			v2 = hand2[3].value;
+		if (v1 > v2)
+			return 1;
+		if (v1 < v2)
+			return -1;
+
+		return 0;
+	}
+
+	if (ht1 == HandType::TwoPair) {
+		v1 = hand1[3].value;
+		v2 = hand2[3].value;
+		if (v1 > v2)
+			return 1;
+		if (v1 < v2)
+			return -1;
+
+		v1 = hand1[1].value;
+		v2 = hand2[1].value;
+		if (v1 > v2)
+			return 1;
+		if (v1 < v2)
+			return -1;
+
+		if ((hand1[3].value) != (hand1[4].value))
+			v1 = hand1[4].value;
+		else if ((hand1[1].value) != (hand1[0].value))
+			v1 = hand1[0].value;
+		else
+			v1 = hand1[2].value;
+		if ((hand2[3].value) != (hand2[4].value))
+			v2 = hand2[4].value;
+		else if ((hand2[1].value) != (hand2[0].value))
+			v2 = hand2[0].value;
+		else
+			v2 = hand2[2].value;
+		if (v1 > v2)
+			return 1;
+		if (v1 < v2)
+			return -1;
+
+		return 0;
+	}
+
+	if (ht1 == HandType::OnePair) {
+		byte i1 = 0, i2 = 0;
+		while (i1 < 4) {
+			if ((hand1[i1].value) == (hand1[i1 + 1].value))
+				break;
+			i1++;
+		}
+		while (i2 < 4) {
+			if ((hand2[i2].value) == (hand2[i2 + 1].value))
+				break;
+			i2++;
+		}
+		v1 = hand1[i1].value;
+		v2 = hand2[i2].value;
+		if (v1 > v2)
+			return 1;
+		if (v1 < v2)
+			return -1;
+
+		byte j1 = (i1 == 3) ? 2 : 4;
+		byte j2 = (i2 == 3) ? 2 : 4;
+		v1 = hand1[j1].value;
+		v2 = hand2[j2].value;
+		if (v1 > v2)
+			return 1;
+		if (v1 < v2)
+			return -1;
+
+		j1 = (i1 > 1) ? 1 : 3;
+		j2 = (i2 > 1) ? 1 : 3;
+		v1 = hand1[j1].value;
+		v2 = hand2[j2].value;
+		if (v1 > v2)
+			return 1;
+		if (v1 < v2)
+			return -1;
+
+		j1 = (i1 == 0) ? 2 : 0;
+		j2 = (i2 == 0) ? 2 : 0;
+		v1 = hand1[j1].value;
+		v2 = hand2[j2].value;
+		if (v1 > v2)
+			return 1;
+		if (v1 < v2)
+			return -1;
+
+		return 0;
+	}
+
+	if (ht1 == HandType::HighCard) {
+		for (int32_t i = 5; i--;) {
+			v1 = hand1[i].value;
+			v2 = hand2[i].value;
+			if (v1 > v2)
+				return 1;
+			if (v1 < v2)
 				return -1;
 		}
 
@@ -355,7 +770,7 @@ void SaveAllHandsToFile()
 					{
 						cards[4] = k4;
 						ht = GetHandType( cards );
-						stats[ht]++;
+						stats[(int)ht]++;
 						//PrintHand( sHand, cards );
 						//fprintf( f, "%.7i %s   %s\n", kHand++, sHand, g_den[ht] );
 					}
@@ -908,7 +1323,7 @@ void GameOn()
 			int res = CompareHands( bestHand1, bestHand2 );
 
 			if( res == 1 ){
-				mvprintw(logpos++,0,"Computer wins with a %s.", g_den[GetHandType(bestHand1)] );
+				mvprintw(logpos++,0,"Computer wins with a %s.", g_den[(int)GetHandType(bestHand1)] );
 				PrintSymbol( sCard, cards[0][0] );
 				mvprintw(logpos++,0,"Computer had: %s ", sCard);
 				PrintSymbol( sCard, cards[0][1] );
@@ -916,7 +1331,7 @@ void GameOn()
 				stack[0] += pot;
 			}
 			else if( res == -1 ){
-				mvprintw(logpos++,0,"Human wins with a %s.", g_den[GetHandType(bestHand2)] );
+				mvprintw(logpos++,0,"Human wins with a %s.", g_den[(int)GetHandType(bestHand2)] );
 				PrintSymbol( sCard, cards[0][0] );
 				mvprintw(logpos++,0,"Computer had: %s ", sCard);
 				PrintSymbol( sCard, cards[0][1] );
@@ -924,7 +1339,7 @@ void GameOn()
 				stack[1] += pot;
 			}
 			else{
-				mvprintw(logpos++,0,"Both players tie a %s.", g_den[GetHandType(bestHand2)] );
+				mvprintw(logpos++,0,"Both players tie a %s.", g_den[(int)GetHandType(bestHand2)] );
 				PrintSymbol( sCard, cards[0][0] );
 				mvprintw(logpos++,0,"Computer had: %s ", sCard);
 				PrintSymbol( sCard, cards[0][1] );
@@ -966,7 +1381,254 @@ DWORD WINAPI tetsf( LPVOID zzz )
 	return 0;
 }
 
-void main(){
+template<typename T>
+std::vector<T> GetVectorForPermutation()
+{
+	const auto n = 50;
+	const auto k = 6;
+	std::vector<T> v(n);
+	std::fill(v.begin(), v.end() - k, T(0));
+	std::fill(v.begin() + n - k, v.end(), T(1));
+	return v;
+}
+
+void Replace(Card dstHand[5], const Card srcHand[5])
+{
+	reinterpret_cast<int32_t&>(dstHand[0]) = reinterpret_cast<const int32_t&>(srcHand[0]);
+	dstHand[4] = srcHand[4];
+}
+
+void ReplaceIfBetter(Card targetHand[5], const Card candidateHand[5])
+{
+	if (CompareHands(candidateHand, targetHand) == 1)
+	{
+		Replace(targetHand, candidateHand);
+	}
+}
+
+std::vector<Card> GetBestHand(const std::vector<Card>& cards)
+{
+	const int32_t numHandCards = 5;
+	const int32_t numCards = cards.size();
+	std::vector<int32_t> handPicker(numCards);
+	std::fill(handPicker.begin(), handPicker.end() - numHandCards, 0);
+	std::fill(handPicker.end() - numHandCards, handPicker.end(), 1);
+	Card bestHand[numHandCards];
+	Card hand[numHandCards];
+	int32_t hc;
+	bool firstHand = true;
+	do {
+		hc = 0;
+		for (int32_t k = 0; k < numCards; ++k)
+		{
+			if (handPicker[k] != 0)
+			{
+				hand[hc++] = cards[k];
+			}
+		}
+		//printf("Hand type: %13s Hand: %s\n", ToString(GetHandType(&hand[0])).c_str(), ToString(&hand[0], 5).c_str());
+		if (firstHand)
+		{
+			firstHand = false;
+			Replace(bestHand, hand);
+		}
+		else
+		{
+			ReplaceIfBetter(bestHand, hand);
+		}
+	} while (std::next_permutation(handPicker.begin(), handPicker.end()));
+
+	return std::vector<Card>(bestHand, bestHand + numHandCards);
+}
+
+uintmax_t Combination(uint32_t n, uint32_t k)
+{
+	if (n - k < k)
+	{
+		return Combination(n, n - k);
+	}
+	else
+	{
+		uintmax_t result = 1;
+		for (uint32_t i = 0; i < k; ++i)
+		{
+			result *= (n - i);
+		}
+		for (uint32_t i = 2; i <= k; ++i)
+		{
+			result /= i;
+		}
+		return result;
+	}
+}
+
+struct Chances
+{
+	uintmax_t total;
+	uintmax_t winning;
+	uintmax_t split;
+};
+
+
+
+Chances GetChances(const std::vector<Card>& playerCards, const std::vector<Card>& opponentCards, const std::vector<Card>& tableCards)
+{
+	const int32_t numCardsInDeck = static_cast<int32_t>(CardColor::Count) * static_cast<int32_t>(CardValue::Count);
+
+	const int32_t maxPlayerCards = 2;
+	const int32_t maxOpponentCards = 2;
+	const int32_t maxTableCards = 5;
+
+	const int32_t numPlayerCards = playerCards.size();
+	const int32_t numOpponentCards = opponentCards.size();
+	const int32_t numTableCards = tableCards.size();
+
+	const int32_t missingPlayerCards = maxPlayerCards - numPlayerCards;
+	const int32_t missingOpponentCards = maxOpponentCards - numOpponentCards;
+	const int32_t missingTableCards = maxTableCards - numTableCards;
+
+	const int32_t missingTotalCards = missingPlayerCards + missingOpponentCards + missingTableCards;
+	const int32_t knownTotalCards = maxPlayerCards + maxOpponentCards + maxTableCards - missingTotalCards;
+
+	Chances chances;
+	chances.total
+		= Combination(numCardsInDeck - knownTotalCards, missingPlayerCards)
+		* Combination(numCardsInDeck - knownTotalCards - missingPlayerCards, missingOpponentCards)
+		* Combination(numCardsInDeck - knownTotalCards - missingPlayerCards - missingOpponentCards, missingTableCards);
+	chances.winning = 0;
+	chances.split = 0;
+
+	std::vector<Card> innerTableCards(maxTableCards - tableCards.size());
+	innerTableCards.insert(innerTableCards.end(), tableCards.begin(), tableCards.end());
+
+	std::vector<Card> playerDeck(maxPlayerCards + maxTableCards);
+	std::vector<Card> opponentDeck(maxOpponentCards + maxTableCards);
+
+	std::vector<Card> knownCards;
+	knownCards.insert(knownCards.end(), playerCards.begin(), playerCards.end());
+	knownCards.insert(knownCards.end(), opponentCards.begin(), opponentCards.end());
+	knownCards.insert(knownCards.end(), tableCards.begin(), tableCards.end());
+	assert(knownCards.size() == knownTotalCards);
+
+	std::vector<Card> playerOptions;
+	for (int32_t i = 0; i < numCardsInDeck; ++i)
+	{
+		Card c(i);
+		if (knownCards.end() == std::find_if(knownCards.begin(), knownCards.end(), [c](Card vc) { return vc == c; }))
+		{
+			playerOptions.push_back(c);
+		}
+	}
+	//assert(playerOptions.size() == 48);
+
+	std::vector<int32_t> playerPicker(playerOptions.size());
+	std::fill(playerPicker.begin(), playerPicker.end() - missingPlayerCards, 0);
+	std::fill(playerPicker.end() - missingPlayerCards, playerPicker.end(), 1);
+
+	uintmax_t totalTries = 0;
+	do {
+		std::vector<Card> playerKnownCards;
+		playerKnownCards.insert(playerKnownCards.end(), knownCards.begin(), knownCards.end());
+		std::vector<Card> innerPlayerCards;
+		innerPlayerCards.insert(innerPlayerCards.end(), playerCards.begin(), playerCards.end());
+		for (int32_t k = 0; k < playerOptions.size(); ++k)
+		{
+			if (playerPicker[k] != 0)
+			{
+				innerPlayerCards.push_back(playerOptions[k]);
+				playerKnownCards.push_back(playerOptions[k]);
+			}
+		}
+
+		std::vector<Card> opponentOptions;
+		for (int32_t i = 0; i < numCardsInDeck; ++i)
+		{
+			Card c(i);
+			if (playerKnownCards.end() == std::find_if(playerKnownCards.begin(), playerKnownCards.end(), [c](Card vc) { return vc == c; }))
+			{
+				opponentOptions.push_back(c);
+			}
+		}
+		//assert(opponentOptions.size() == 48);
+
+		std::vector<int32_t> opponentPicker(opponentOptions.size());
+		std::fill(opponentPicker.begin(), opponentPicker.end() - missingOpponentCards, 0);
+		std::fill(opponentPicker.end() - missingOpponentCards, opponentPicker.end(), 1);
+
+		do {
+			std::vector<Card> opponentKnownCards;
+			opponentKnownCards.insert(opponentKnownCards.end(), playerKnownCards.begin(), playerKnownCards.end());
+			std::vector<Card> innerOpponentCards;
+			innerOpponentCards.insert(innerOpponentCards.end(), opponentCards.begin(), opponentCards.end());
+			for (int32_t k = 0; k < opponentOptions.size(); ++k)
+			{
+				if (opponentPicker[k] != 0)
+				{
+					innerOpponentCards.push_back(opponentOptions[k]);
+					opponentKnownCards.push_back(opponentOptions[k]);
+				}
+			}
+
+			std::vector<Card> tableOptions;
+			for (int32_t i = 0; i < numCardsInDeck; ++i)
+			{
+				Card c(i);
+				if (opponentKnownCards.end() == std::find_if(opponentKnownCards.begin(), opponentKnownCards.end(), [c](Card vc) { return vc == c; }))
+				{
+					tableOptions.push_back(c);
+				}
+			}
+			//assert(tableOptions.size() == 48);
+
+			std::vector<int32_t> tablePicker(tableOptions.size());
+			std::fill(tablePicker.begin(), tablePicker.end() - missingTableCards, 0);
+			std::fill(tablePicker.end() - missingTableCards, tablePicker.end(), 1);
+
+			do {
+				int32_t innerTableCardsIndex = 0;
+				for (int32_t k = 0; k < tableOptions.size(); ++k)
+				{
+					if (tablePicker[k] != 0)
+					{
+						innerTableCards[innerTableCardsIndex++] = tableOptions[k];
+					}
+				}
+
+				std::copy(innerPlayerCards.begin(), innerPlayerCards.end(), playerDeck.begin());
+				std::copy(innerTableCards.begin(), innerTableCards.end(), playerDeck.begin() + maxPlayerCards);
+				std::sort(playerDeck.begin(), playerDeck.end());
+				const auto& bestPlayerHand = GetBestHand(playerDeck);
+
+				std::copy(innerOpponentCards.begin(), innerOpponentCards.end(), opponentDeck.begin());
+				std::copy(innerTableCards.begin(), innerTableCards.end(), opponentDeck.begin() + maxOpponentCards);
+				std::sort(opponentDeck.begin(), opponentDeck.end());
+				const auto& bestOpponentHand = GetBestHand(opponentDeck);
+
+				++totalTries;
+				const auto comparisonResult = CompareHands(&bestPlayerHand[0], &bestOpponentHand[0]);
+				chances.winning += (comparisonResult == 1) ? 1 : 0;
+				chances.split += (comparisonResult == 0) ? 1 : 0;
+
+				//if (comparisonResult == 0)
+				//{
+				//	printf("Hand type: %13s Hand: %s\n", ToString(GetHandType(&bestPlayerHand[0])).c_str(), ToString(&playerDeck[0], 7).c_str());
+				//	printf("Hand type: %13s Hand: %s\n", ToString(GetHandType(&bestOpponentHand[0])).c_str(), ToString(&opponentDeck[0], 7).c_str());
+				//	printf("comparisonResult: %d\n", comparisonResult);
+				//}
+
+			} while (std::next_permutation(tablePicker.begin(), tablePicker.end()));
+
+		} while (std::next_permutation(opponentPicker.begin(), opponentPicker.end()));
+
+	} while (std::next_permutation(playerPicker.begin(), playerPicker.end()));
+
+	printf("totalTries=%llu\n", totalTries);
+
+	return chances;
+}
+
+void main()
+{
 	//PrintSymbol( 50 );
 	//srand( (unsigned)time( NULL ) );
 	//byte cards[5];
@@ -1001,73 +1663,135 @@ void main(){
 	//GetBestHand( tstcards, 7, bestHand2 );
 	//int res = CompareHands( bestHand1, bestHand2 );
 
-	int *a[10];
-	for (int i=0; i<10; i++){
-		int z = i & 3;
-		switch(z){
-			case 0:{
-				int k = i + 10;
-				a[i] = &k;
-				   }
-				   break;
-			case 1:{
-				int k = i + 20;
-				a[i] = &k;
-				   }
-				   break;
-			case 2:{
-				int k = i + 30;
-				a[i] = &k;
-				   }
-				   break;
-			case 3:{
-				int k = i + 40;
-				a[i] = &k;
-				   }
-				   break;
-		}
-	}
-	for(int i=0; i<10; i++)
-	{
-		printf("%d ", *a[i]);
-	}
-	int x; scanf("%d",&x);
-	return;
-
+#if 0
 	CThreadHelper threadHelper;
-	threadHelper.MultithreadedExecute( tetsf, NULL, 0 );
+	threadHelper.MultithreadedExecute(tetsf, NULL, 0);
 	return;
+#endif
 
-	srand( GetTickCount() );
+#if 0
+	srand(GetTickCount());
 
 	float fWin, fDraw, ifWin, ifDraw;
 	byte hand[2] = { 45, 43 };
 	byte table[3] = { 12, 46, 32 };
 
 	int t1 = GetTickCount();
-	DecideAfterFlop( hand, table, ifWin, ifDraw );
-	printf( "Time (inf tries): %d\nfWin: %f\nfDraw: %f\n", GetTickCount() - t1, ifWin, ifDraw );
+	DecideAfterFlop(hand, table, ifWin, ifDraw);
+	printf("Time (inf tries): %d\nfWin: %f\nfDraw: %f\n", GetTickCount() - t1, ifWin, ifDraw);
 	t1 = GetTickCount();
-	DecideAfterFlop2( hand, table, fWin, fDraw, 100 );
-	printf( "Time (100 tries): %d\nfWin: %f - %f\nfDraw: %f - %f\n", GetTickCount() - t1, fWin, ABS(fWin - ifWin), fDraw, ABS(fDraw - ifDraw) );
+	DecideAfterFlop2(hand, table, fWin, fDraw, 100);
+	printf("Time (100 tries): %d\nfWin: %f - %f\nfDraw: %f - %f\n", GetTickCount() - t1, fWin, ABS(fWin - ifWin), fDraw, ABS(fDraw - ifDraw));
 	t1 = GetTickCount();
-	DecideAfterFlop2( hand, table, fWin, fDraw, 1000 );
-	printf( "Time (1000 tries): %d\nfWin: %f - %f\nfDraw: %f - %f\n", GetTickCount() - t1, fWin, ABS(fWin - ifWin), fDraw, ABS(fDraw - ifDraw) );
+	DecideAfterFlop2(hand, table, fWin, fDraw, 1000);
+	printf("Time (1000 tries): %d\nfWin: %f - %f\nfDraw: %f - %f\n", GetTickCount() - t1, fWin, ABS(fWin - ifWin), fDraw, ABS(fDraw - ifDraw));
 	t1 = GetTickCount();
-	DecideAfterFlop2( hand, table, fWin, fDraw, 10000 );
-	printf( "Time (10000 tries): %d\nfWin: %f - %f\nfDraw: %f - %f\n", GetTickCount() - t1, fWin, ABS(fWin - ifWin), fDraw, ABS(fDraw - ifDraw) );
+	DecideAfterFlop2(hand, table, fWin, fDraw, 10000);
+	printf("Time (10000 tries): %d\nfWin: %f - %f\nfDraw: %f - %f\n", GetTickCount() - t1, fWin, ABS(fWin - ifWin), fDraw, ABS(fDraw - ifDraw));
 	t1 = GetTickCount();
-	DecideAfterFlop2( hand, table, fWin, fDraw, 21544 );
-	printf( "Time (21544 tries): %d\nfWin: %f - %f\nfDraw: %f - %f\n", GetTickCount() - t1, fWin, ABS(fWin - ifWin), fDraw, ABS(fDraw - ifDraw) );
+	DecideAfterFlop2(hand, table, fWin, fDraw, 21544);
+	printf("Time (21544 tries): %d\nfWin: %f - %f\nfDraw: %f - %f\n", GetTickCount() - t1, fWin, ABS(fWin - ifWin), fDraw, ABS(fDraw - ifDraw));
 	t1 = GetTickCount();
-	DecideAfterFlop2( hand, table, fWin, fDraw, 46416 );
-	printf( "Time (46416 tries): %d\nfWin: %f - %f\nfDraw: %f - %f\n", GetTickCount() - t1, fWin, ABS(fWin - ifWin), fDraw, ABS(fDraw - ifDraw) );
+	DecideAfterFlop2(hand, table, fWin, fDraw, 46416);
+	printf("Time (46416 tries): %d\nfWin: %f - %f\nfDraw: %f - %f\n", GetTickCount() - t1, fWin, ABS(fWin - ifWin), fDraw, ABS(fDraw - ifDraw));
 	t1 = GetTickCount();
-	DecideAfterFlop2( hand, table, fWin, fDraw, 100000 );
-	printf( "Time (100000 tries): %d\nfWin: %f - %f\nfDraw: %f - %f\n", GetTickCount() - t1, fWin, ABS(fWin - ifWin), fDraw, ABS(fDraw - ifDraw) );
+	DecideAfterFlop2(hand, table, fWin, fDraw, 100000);
+	printf("Time (100000 tries): %d\nfWin: %f - %f\nfDraw: %f - %f\n", GetTickCount() - t1, fWin, ABS(fWin - ifWin), fDraw, ABS(fDraw - ifDraw));
 	t1 = GetTickCount();
-	DecideAfterFlop2( hand, table, fWin, fDraw, 200000 );
-	printf( "Time (200000 tries): %d\nfWin: %f - %f\nfDraw: %f - %f\n", GetTickCount() - t1, fWin, ABS(fWin - ifWin), fDraw, ABS(fDraw - ifDraw) );
+	DecideAfterFlop2(hand, table, fWin, fDraw, 200000);
+	printf("Time (200000 tries): %d\nfWin: %f - %f\nfDraw: %f - %f\n", GetTickCount() - t1, fWin, ABS(fWin - ifWin), fDraw, ABS(fDraw - ifDraw));
 
-	scanf("%f",fWin);
+	scanf("%f", fWin);
+#endif
+
+#if 1
+	//std::vector<Card> cards = {"Ks", "Qs", "Js", "0s", "As", "Ah", "Ad"};
+	//std::sort(cards.begin(), cards.end());
+	//printf("Cards: %s\n", ToString(&cards[0], 7).c_str());
+	//const auto& bestHand = GetBestHand(cards);
+	//printf("Hand type: %s Hand: %s\n", ToString(GetHandType(&bestHand[0])).c_str(), ToString(&bestHand[0], 5).c_str());
+
+	Chronometer ch(true);
+	const auto& chances = GetChances({"As", "Kh"}, {}, {"Jd", "3c", "9s"});
+	printf("Time: %f\n", ch.GetElapsedTimeMs());
+
+	printf("Chances.total=%llu\n",chances.total);
+	printf("Chances.winning=%llu\n", chances.winning);
+	printf("Chances.split=%llu\n", chances.split);
+
+	printf("You      %6.3f%%\n", 100 * static_cast<double>(chances.winning) / chances.total);
+	printf("Opponent %6.3f%%\n", 100 * static_cast<double>(chances.total - chances.winning - chances.split) / chances.total);
+	printf("Split    %6.3f%%\n", 100 * static_cast<double>(chances.split) / chances.total);
+
+	//{
+	//	auto bv = GetVectorForPermutation<uint8_t>();
+	//	uint_fast32_t c = 0;
+
+	//	Chronometer ch(true);
+	//	do {
+	//		++c;
+	//	} while (std::next_permutation(bv.begin(), bv.end()));
+	//	printf("Time: %f c=%d\n", ch.GetElapsedTimeMs(), c);
+	//}
+
+	//{
+	//	auto bv = GetVectorForPermutation<uint16_t>();
+	//	uint_fast32_t c = 0;
+
+	//	Chronometer ch(true);
+	//	do {
+	//		++c;
+	//	} while (std::next_permutation(bv.begin(), bv.end()));
+	//	printf("Time: %f c=%d\n", ch.GetElapsedTimeMs(), c);
+	//}
+
+	//{
+	//	auto bv = GetVectorForPermutation<uint32_t>();
+	//	uint_fast32_t c = 0;
+
+	//	Chronometer ch(true);
+	//	do {
+	//		++c;
+	//	} while (std::next_permutation(bv.begin(), bv.end()));
+	//	printf("Time: %f c=%d\n", ch.GetElapsedTimeMs(), c);
+	//}
+
+	//{
+	//	auto bv = GetVectorForPermutation<int8_t>();
+	//	uint_fast32_t c = 0;
+
+	//	Chronometer ch(true);
+	//	do {
+	//		++c;
+	//	} while (std::next_permutation(bv.begin(), bv.end()));
+	//	printf("Time: %f c=%d\n", ch.GetElapsedTimeMs(), c);
+	//}
+
+	//{
+	//	auto bv = GetVectorForPermutation<int16_t>();
+	//	uint_fast32_t c = 0;
+
+	//	Chronometer ch(true);
+	//	do {
+	//		++c;
+	//	} while (std::next_permutation(bv.begin(), bv.end()));
+	//	printf("Time: %f c=%d\n", ch.GetElapsedTimeMs(), c);
+	//}
+
+	//{
+	//	auto bv = GetVectorForPermutation<int32_t>();
+	//	uint_fast32_t c = 0;
+
+	//	Chronometer ch(true);
+	//	do {
+	//		++c;
+	//	} while (std::next_permutation(bv.begin(), bv.end()));
+	//	printf("Time: %f c=%d\n", ch.GetElapsedTimeMs(), c);
+	//}
+
+	char cc;
+	scanf("%c", cc);
+
+	return;
+#endif
 }
