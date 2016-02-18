@@ -314,6 +314,13 @@ int CompareHands( byte hand1[5], byte hand2[5] )
 			return 1;
 		if( v1 < v2 )
 			return -1;
+		v1 = hand1[4] >> 2;
+		v2 = hand2[4] >> 2;
+		if (v1 < v2)
+			return 1;
+		if (v1 > v2)
+			return -1;
+		return 0;
 		return 0;
 	}
 
@@ -502,186 +509,200 @@ int CompareHands(const Card hand1[5], const Card hand2[5])
 
 	CardValue v1, v2;
 
-	if (ht1 == HandType::StraightFlush || ht1 == HandType::Straight) {
-		v1 = hand1[0].value;
-		v2 = hand2[0].value;
-		if (v1 > v2)
-			return 1;
-		if (v1 < v2)
-			return -1;
-		return 0;
-	}
+	switch (ht1)
+	{
+	case HandType::HighCard:
+		{
+			for (int32_t i = 5; i--;) {
+				v1 = hand1[i].value;
+				v2 = hand2[i].value;
+				if (v1 > v2)
+					return 1;
+				if (v1 < v2)
+					return -1;
+			}
 
-	if (ht1 == HandType::FourOfAKind || ht1 == HandType::FullHouse) {
-		v1 = hand1[2].value;
-		v2 = hand2[2].value;
-		if (v1 > v2)
-			return 1;
-		if (v1 < v2)
-			return -1;
-		if ((hand1[4].value) == v1)
-			v1 = hand1[0].value;
-		else
-			v1 = hand1[4].value;
-		if ((hand2[4].value) == v2)
-			v2 = hand2[0].value;
-		else
-			v2 = hand2[4].value;
-		if (v1 > v2)
-			return 1;
-		if (v1 < v2)
-			return -1;
-		return 0;
-	}
-
-	if (ht1 == HandType::Flush) {
-		byte i = 4;
-		v1 = hand1[i].value;
-		v2 = hand2[i].value;
-		while (v1 == v2 && i > 0) {
-			i--;
-			v1 = hand1[i].value;
-			v2 = hand2[i].value;
+			return 0;
 		}
-		if (v1 > v2)
-			return 1;
-		if (v1 < v2)
-			return -1;
-		return 0;
-	}
-
-	if (ht1 == HandType::ThreeOfAKind) {
-		v1 = hand1[2].value;
-		v2 = hand2[2].value;
-		if (v1 > v2)
-			return 1;
-		if (v1 < v2)
-			return -1;
-
-		if ((hand1[2].value) != (hand1[4].value))
-			v1 = hand1[4].value;
-		else
-			v1 = hand1[1].value;
-		if ((hand2[2].value) != (hand2[4].value))
-			v2 = hand2[4].value;
-		else
-			v2 = hand2[1].value;
-		if (v1 > v2)
-			return 1;
-		if (v1 < v2)
-			return -1;
-
-		if ((hand1[2].value) != (hand1[0].value))
-			v1 = hand1[0].value;
-		else
-			v1 = hand1[3].value;
-		if ((hand2[2].value) != (hand2[0].value))
-			v2 = hand2[0].value;
-		else
-			v2 = hand2[3].value;
-		if (v1 > v2)
-			return 1;
-		if (v1 < v2)
-			return -1;
-
-		return 0;
-	}
-
-	if (ht1 == HandType::TwoPair) {
-		v1 = hand1[3].value;
-		v2 = hand2[3].value;
-		if (v1 > v2)
-			return 1;
-		if (v1 < v2)
-			return -1;
-
-		v1 = hand1[1].value;
-		v2 = hand2[1].value;
-		if (v1 > v2)
-			return 1;
-		if (v1 < v2)
-			return -1;
-
-		if ((hand1[3].value) != (hand1[4].value))
-			v1 = hand1[4].value;
-		else if ((hand1[1].value) != (hand1[0].value))
-			v1 = hand1[0].value;
-		else
-			v1 = hand1[2].value;
-		if ((hand2[3].value) != (hand2[4].value))
-			v2 = hand2[4].value;
-		else if ((hand2[1].value) != (hand2[0].value))
-			v2 = hand2[0].value;
-		else
-			v2 = hand2[2].value;
-		if (v1 > v2)
-			return 1;
-		if (v1 < v2)
-			return -1;
-
-		return 0;
-	}
-
-	if (ht1 == HandType::OnePair) {
-		byte i1 = 0, i2 = 0;
-		while (i1 < 4) {
-			if ((hand1[i1].value) == (hand1[i1 + 1].value))
-				break;
-			i1++;
-		}
-		while (i2 < 4) {
-			if ((hand2[i2].value) == (hand2[i2 + 1].value))
-				break;
-			i2++;
-		}
-		v1 = hand1[i1].value;
-		v2 = hand2[i2].value;
-		if (v1 > v2)
-			return 1;
-		if (v1 < v2)
-			return -1;
-
-		byte j1 = (i1 == 3) ? 2 : 4;
-		byte j2 = (i2 == 3) ? 2 : 4;
-		v1 = hand1[j1].value;
-		v2 = hand2[j2].value;
-		if (v1 > v2)
-			return 1;
-		if (v1 < v2)
-			return -1;
-
-		j1 = (i1 > 1) ? 1 : 3;
-		j2 = (i2 > 1) ? 1 : 3;
-		v1 = hand1[j1].value;
-		v2 = hand2[j2].value;
-		if (v1 > v2)
-			return 1;
-		if (v1 < v2)
-			return -1;
-
-		j1 = (i1 == 0) ? 2 : 0;
-		j2 = (i2 == 0) ? 2 : 0;
-		v1 = hand1[j1].value;
-		v2 = hand2[j2].value;
-		if (v1 > v2)
-			return 1;
-		if (v1 < v2)
-			return -1;
-
-		return 0;
-	}
-
-	if (ht1 == HandType::HighCard) {
-		for (int32_t i = 5; i--;) {
-			v1 = hand1[i].value;
-			v2 = hand2[i].value;
+	case HandType::OnePair:
+		{
+			byte i1 = 0, i2 = 0;
+			while (i1 < 4) {
+				if ((hand1[i1].value) == (hand1[i1 + 1].value))
+					break;
+				i1++;
+			}
+			while (i2 < 4) {
+				if ((hand2[i2].value) == (hand2[i2 + 1].value))
+					break;
+				i2++;
+			}
+			v1 = hand1[i1].value;
+			v2 = hand2[i2].value;
 			if (v1 > v2)
 				return 1;
 			if (v1 < v2)
 				return -1;
-		}
 
-		return 0;
+			byte j1 = (i1 == 3) ? 2 : 4;
+			byte j2 = (i2 == 3) ? 2 : 4;
+			v1 = hand1[j1].value;
+			v2 = hand2[j2].value;
+			if (v1 > v2)
+				return 1;
+			if (v1 < v2)
+				return -1;
+
+			j1 = (i1 > 1) ? 1 : 3;
+			j2 = (i2 > 1) ? 1 : 3;
+			v1 = hand1[j1].value;
+			v2 = hand2[j2].value;
+			if (v1 > v2)
+				return 1;
+			if (v1 < v2)
+				return -1;
+
+			j1 = (i1 == 0) ? 2 : 0;
+			j2 = (i2 == 0) ? 2 : 0;
+			v1 = hand1[j1].value;
+			v2 = hand2[j2].value;
+			if (v1 > v2)
+				return 1;
+			if (v1 < v2)
+				return -1;
+
+			return 0;
+		}
+	case HandType::TwoPair:
+		{
+			v1 = hand1[3].value;
+			v2 = hand2[3].value;
+			if (v1 > v2)
+				return 1;
+			if (v1 < v2)
+				return -1;
+
+			v1 = hand1[1].value;
+			v2 = hand2[1].value;
+			if (v1 > v2)
+				return 1;
+			if (v1 < v2)
+				return -1;
+
+			if ((hand1[3].value) != (hand1[4].value))
+				v1 = hand1[4].value;
+			else if ((hand1[1].value) != (hand1[0].value))
+				v1 = hand1[0].value;
+			else
+				v1 = hand1[2].value;
+			if ((hand2[3].value) != (hand2[4].value))
+				v2 = hand2[4].value;
+			else if ((hand2[1].value) != (hand2[0].value))
+				v2 = hand2[0].value;
+			else
+				v2 = hand2[2].value;
+			if (v1 > v2)
+				return 1;
+			if (v1 < v2)
+				return -1;
+
+			return 0;
+		}
+	case HandType::ThreeOfAKind:
+		{
+			v1 = hand1[2].value;
+			v2 = hand2[2].value;
+			if (v1 > v2)
+				return 1;
+			if (v1 < v2)
+				return -1;
+
+			if ((hand1[2].value) != (hand1[4].value))
+				v1 = hand1[4].value;
+			else
+				v1 = hand1[1].value;
+			if ((hand2[2].value) != (hand2[4].value))
+				v2 = hand2[4].value;
+			else
+				v2 = hand2[1].value;
+			if (v1 > v2)
+				return 1;
+			if (v1 < v2)
+				return -1;
+
+			if ((hand1[2].value) != (hand1[0].value))
+				v1 = hand1[0].value;
+			else
+				v1 = hand1[3].value;
+			if ((hand2[2].value) != (hand2[0].value))
+				v2 = hand2[0].value;
+			else
+				v2 = hand2[3].value;
+			if (v1 > v2)
+				return 1;
+			if (v1 < v2)
+				return -1;
+
+			return 0;
+		}
+	case HandType::Straight:
+	case HandType::StraightFlush:
+		{
+			v1 = hand1[0].value;
+			v2 = hand2[0].value;
+			if (v1 > v2)
+				return 1;
+			if (v1 < v2)
+				return -1;
+			v1 = hand1[4].value;
+			v2 = hand2[4].value;
+			if (v1 < v2)
+				return 1;
+			if (v1 > v2)
+				return -1;
+
+			return 0;
+		}
+	case HandType::Flush:
+		{
+			byte i = 4;
+			v1 = hand1[i].value;
+			v2 = hand2[i].value;
+			while (v1 == v2 && i > 0) {
+				i--;
+				v1 = hand1[i].value;
+				v2 = hand2[i].value;
+			}
+			if (v1 > v2)
+				return 1;
+			if (v1 < v2)
+				return -1;
+
+			return 0;
+		}
+	case HandType::FullHouse:
+	case HandType::FourOfAKind:
+		{
+			v1 = hand1[2].value;
+			v2 = hand2[2].value;
+			if (v1 > v2)
+				return 1;
+			if (v1 < v2)
+				return -1;
+			if ((hand1[4].value) == v1)
+				v1 = hand1[0].value;
+			else
+				v1 = hand1[4].value;
+			if ((hand2[4].value) == v2)
+				v2 = hand2[0].value;
+			else
+				v2 = hand2[4].value;
+			if (v1 > v2)
+				return 1;
+			if (v1 < v2)
+				return -1;
+			return 0;
+		}
 	}
 }
 
@@ -1406,18 +1427,23 @@ void ReplaceIfBetter(Card targetHand[5], const Card candidateHand[5])
 	}
 }
 
-std::vector<Card> GetBestHand(const std::vector<Card>& cards)
+void GetBestHand(const std::vector<Card>& cards, Card bestHand[5])
 {
 	const int32_t numHandCards = 5;
 	const int32_t numCards = cards.size();
 	std::vector<int32_t> handPicker(numCards);
 	std::fill(handPicker.begin(), handPicker.end() - numHandCards, 0);
 	std::fill(handPicker.end() - numHandCards, handPicker.end(), 1);
-	Card bestHand[numHandCards];
+
+	for (int32_t k = 0; k < numHandCards; ++k)
+	{
+		bestHand[k] = cards[k + numCards - numHandCards];
+	}
+
 	Card hand[numHandCards];
 	int32_t hc;
-	bool firstHand = true;
-	do {
+	while (std::next_permutation(handPicker.begin(), handPicker.end()))
+	{
 		hc = 0;
 		for (int32_t k = 0; k < numCards; ++k)
 		{
@@ -1427,18 +1453,8 @@ std::vector<Card> GetBestHand(const std::vector<Card>& cards)
 			}
 		}
 		//printf("Hand type: %13s Hand: %s\n", ToString(GetHandType(&hand[0])).c_str(), ToString(&hand[0], 5).c_str());
-		if (firstHand)
-		{
-			firstHand = false;
-			Replace(bestHand, hand);
-		}
-		else
-		{
-			ReplaceIfBetter(bestHand, hand);
-		}
-	} while (std::next_permutation(handPicker.begin(), handPicker.end()));
-
-	return std::vector<Card>(bestHand, bestHand + numHandCards);
+		ReplaceIfBetter(bestHand, hand);
+	}
 }
 
 uintmax_t Combination(uint32_t n, uint32_t k)
@@ -1503,6 +1519,9 @@ Chances GetChances(const std::vector<Card>& playerCards, const std::vector<Card>
 
 	std::vector<Card> playerDeck(maxPlayerCards + maxTableCards);
 	std::vector<Card> opponentDeck(maxOpponentCards + maxTableCards);
+
+	Card bestPlayerHand[5];
+	Card bestOpponentHand[5];
 
 	std::vector<Card> knownCards;
 	knownCards.insert(knownCards.end(), playerCards.begin(), playerCards.end());
@@ -1597,15 +1616,15 @@ Chances GetChances(const std::vector<Card>& playerCards, const std::vector<Card>
 				std::copy(innerPlayerCards.begin(), innerPlayerCards.end(), playerDeck.begin());
 				std::copy(innerTableCards.begin(), innerTableCards.end(), playerDeck.begin() + maxPlayerCards);
 				std::sort(playerDeck.begin(), playerDeck.end());
-				const auto& bestPlayerHand = GetBestHand(playerDeck);
+				GetBestHand(playerDeck, bestPlayerHand);
 
 				std::copy(innerOpponentCards.begin(), innerOpponentCards.end(), opponentDeck.begin());
 				std::copy(innerTableCards.begin(), innerTableCards.end(), opponentDeck.begin() + maxOpponentCards);
 				std::sort(opponentDeck.begin(), opponentDeck.end());
-				const auto& bestOpponentHand = GetBestHand(opponentDeck);
+				GetBestHand(opponentDeck, bestOpponentHand);
 
 				++totalTries;
-				const auto comparisonResult = CompareHands(&bestPlayerHand[0], &bestOpponentHand[0]);
+				const auto comparisonResult = CompareHands(bestPlayerHand, bestOpponentHand);
 				chances.winning += (comparisonResult == 1) ? 1 : 0;
 				chances.split += (comparisonResult == 0) ? 1 : 0;
 
