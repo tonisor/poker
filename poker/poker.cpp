@@ -12,6 +12,9 @@
 #include <vector>
 #include <algorithm>
 #include <cassert>
+#include <thread>
+#include <mutex>
+#include <deque>
 
 #define MIN(a,b) ( (a) < (b) ? (a) : (b) )
 #define MAX(a,b) ( (a) > (b) ? (a) : (b) )
@@ -701,6 +704,7 @@ int CompareHands(const Card hand1[5], const Card hand2[5])
 				return 1;
 			if (v1 < v2)
 				return -1;
+
 			return 0;
 		}
 	}
@@ -1480,11 +1484,79 @@ uintmax_t Combination(uint32_t n, uint32_t k)
 
 struct Chances
 {
+	Chances() : total(0), winning(0), split(0) {}
 	uintmax_t total;
 	uintmax_t winning;
 	uintmax_t split;
 };
 
+static const int32_t numThreads = 8;
+static const int32_t handsPerThread = 2500;
+class ChanceCollector
+{
+public:
+	explicit ChanceCollector(uint_fast32_t numThreads, uint_fast32_t threadBlockSize);
+	virtual ~ChanceCollector();
+
+	void Initialize(uint_fast32_t numPlayerCards, uint_fast32_t numOpponentCards, uint_fast32_t numTableCards);
+
+	void AddTest(const std::vector<Card>& playerCards, const std::vector<Card>& opponentCards, const std::vector<Card>& tableCards);
+
+	void AddBlockChances(uint_fast32_t threadIndex, const Chances& chances);
+
+private:
+	struct Test
+	{
+		std::vector<Card> playerCards;
+		std::vector<Card> opponentCards;
+		std::vector<Card> tableCards;
+	};
+
+	struct ThreadData
+	{
+		Chances chances;
+		std::vector<Test> block;
+		uint_fast32_t usedTests;
+		uint_fast32_t completedTests;
+		std::mutex chancesMutex;
+		std::thread thread;
+	};
+
+	std::deque<ThreadData> mThreadData;
+	uint_fast32_t mNumThreads;
+	uint_fast32_t mThreadBlockSize;
+};
+
+ChanceCollector::ChanceCollector(uint_fast32_t numThreads, uint_fast32_t threadBlockSize)
+	: mNumThreads(numThreads)
+	, mThreadBlockSize(threadBlockSize)
+{}
+
+ChanceCollector::~ChanceCollector()
+{}
+
+void ChanceCollector::Initialize(uint_fast32_t numPlayerCards, uint_fast32_t numOpponentCards, uint_fast32_t numTableCards)
+{
+	mThreadData.resize(mNumThreads);
+	for (auto& threadData : mThreadData)
+	{
+		threadData.chances.total = 0;
+		threadData.chances.winning = 0;
+		threadData.chances.split = 0;
+		threadData.block.resize(mThreadBlockSize);
+		for (auto& test : threadData.block)
+		{
+			test.playerCards.resize(numPlayerCards);
+			test.opponentCards.resize(numOpponentCards);
+			test.tableCards.resize(numTableCards);
+		}
+	}
+}
+
+void ChanceCollector::AddTest(const std::vector<Card>& playerCards, const std::vector<Card>& opponentCards, const std::vector<Card>& tableCards)
+{
+
+}
 
 
 Chances GetChances(const std::vector<Card>& playerCards, const std::vector<Card>& opponentCards, const std::vector<Card>& tableCards)
@@ -1731,7 +1803,7 @@ void main()
 	//printf("Hand type: %s Hand: %s\n", ToString(GetHandType(&bestHand[0])).c_str(), ToString(&bestHand[0], 5).c_str());
 
 	Chronometer ch(true);
-	const auto& chances = GetChances({"As", "Kh"}, {}, {"Jd", "3c", "9s"});
+	const auto& chances = GetChances({"As", "Kh"}, {"Ah", "Ks"}, {});
 	printf("Time: %f\n", ch.GetElapsedTimeMs());
 
 	printf("Chances.total=%llu\n",chances.total);

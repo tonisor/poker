@@ -1,17 +1,13 @@
 #ifndef THREAD_HELPER_H
 #define THREAD_HELPER_H
 
-#define _WIN32_WINNT 0x0601
-
 #include "Windows.h"
-#include "stdio.h"
 
 class CThreadHelper
 {
 public:
-	struct ROUTINE_WRAPPER_INFO
+	struct ROUTINE_WRAPPER
 	{
-		LPTHREAD_START_ROUTINE lpStartAddress;
 		LPVOID lpParameter;
 		DWORD nThreadID;
 	};
@@ -19,9 +15,17 @@ public:
 	CThreadHelper();
 	~CThreadHelper();
 
-	DWORD RoutineWrapper( LPVOID lpParameter );
-
 	void MultithreadedExecute( LPTHREAD_START_ROUTINE lpStartAddress, LPVOID lpParameter, DWORD nThreads = 0 );
+
+private:
+	struct ROUTINE_WRAPPER_INFO
+	{
+		LPTHREAD_START_ROUTINE lpStartAddress;
+		LPVOID lpParameter;
+		DWORD nThreadID;
+	};
+
+	static DWORD WINAPI RoutineWrapper(LPVOID lpParameter);
 };
 
 #endif //#ifndef THREAD_HELPER_H
