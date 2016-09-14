@@ -1482,9 +1482,13 @@ uintmax_t Combination(uint32_t n, uint32_t k)
 	}
 }
 
+
 struct Chances
 {
 	Chances() : total(0), winning(0), split(0) {}
+	Chances& operator+=(const Chances& c) { total += c.total; winning += c.winning; split += c.split; return *this; }
+	const Chances operator+(const Chances& c) const { return Chances(*this) += c; }
+
 	uintmax_t total;
 	uintmax_t winning;
 	uintmax_t split;
@@ -1492,6 +1496,35 @@ struct Chances
 
 static const int32_t numThreads = 8;
 static const int32_t handsPerThread = 2500;
+
+static Chances ProcessTest(const std::vector<Card>& playerCards, const std::vector<Card>& opponentCards, const std::vector<Card>& tableCards)
+{
+	Card bestPlayerHand[5];
+	Card bestOpponentHand[5];
+
+	std::vector<Card> playerDeck(playerCards.size() + tableCards.size());
+	std::vector<Card> opponentDeck(opponentCards.size() + tableCards.size());
+
+	std::copy(playerCards.begin(), playerCards.end(), playerDeck.begin());
+	std::copy(tableCards.begin(), tableCards.end(), playerDeck.begin() + playerCards.size());
+	std::sort(playerDeck.begin(), playerDeck.end());
+	GetBestHand(playerDeck, bestPlayerHand);
+
+	std::copy(opponentCards.begin(), opponentCards.end(), opponentDeck.begin());
+	std::copy(tableCards.begin(), tableCards.end(), opponentDeck.begin() + opponentCards.size());
+	std::sort(opponentDeck.begin(), opponentDeck.end());
+	GetBestHand(opponentDeck, bestOpponentHand);
+
+	const auto comparisonResult = CompareHands(bestPlayerHand, bestOpponentHand);
+
+	Chances chances;
+	chances.total = 1;
+	chances.winning += (comparisonResult == 1) ? 1 : 0;
+	chances.split += (comparisonResult == 0) ? 1 : 0;
+
+	return chances;
+}
+
 class ChanceCollector
 {
 public:
@@ -1499,10 +1532,9 @@ public:
 	virtual ~ChanceCollector();
 
 	void Initialize(uint_fast32_t numPlayerCards, uint_fast32_t numOpponentCards, uint_fast32_t numTableCards);
+	void JoinAll();
 
 	void AddTest(const std::vector<Card>& playerCards, const std::vector<Card>& opponentCards, const std::vector<Card>& tableCards);
-
-	void AddBlockChances(uint_fast32_t threadIndex, const Chances& chances);
 
 private:
 	struct Test
@@ -1512,17 +1544,108 @@ private:
 		std::vector<Card> tableCards;
 	};
 
-	struct ThreadData
+	struct Signal
 	{
-		Chances chances;
-		std::vector<Test> block;
-		uint_fast32_t usedTests;
-		uint_fast32_t completedTests;
-		std::mutex chancesMutex;
-		std::thread thread;
+		bool condition;
+		std::mutex mutex;
+		std::condition_variable conditionVariable;
+
+		Signal() : condition(false) {}
+		void Wait()
+		{
+			std::unique_lock<decltype(mutex)> lk(mutex);
+			while (!condition)
+				conditionVariable.wait(lk, [this]() { return condition; });
+		}
+		void Clear()
+		{
+			std::unique_lock<decltype(mutex)> lk(mutex);
+			condition = false;
+		}
+		void Raise()
+		{
+			std::unique_lock<decltype(mutex)> lk(mutex);
+			condition = true;
+			lk.unlock();
+			conditionVariable.notify_all();
+		}
+		bool Check()
+		{
+			std::unique_lock<decltype(mutex)> lk(mutex);
+			return condition;
+		}
 	};
 
+	struct Semaphore
+	{
+		uint_fast32_t value;
+		std::mutex mutex;
+		std::condition_variable conditionVariable;
+
+		Semaphore(uint_fast32_t v = 0) : value(v) {}
+		void Set(uint_fast32_t v)
+		{
+			std::unique_lock<decltype(mutex)> lk(mutex);
+			value = v;
+			if (value > 0)
+			{
+				lk.unlock();
+				conditionVariable.notify_all();
+			}
+		}
+		void Wait()
+		{
+			std::unique_lock<decltype(mutex)> lk(mutex);
+			while (value == 0)
+				conditionVariable.wait(lk, [this]() { return value > 0; });
+		}
+		void Inc()
+		{
+			std::unique_lock<decltype(mutex)> lk(mutex);
+			++value;
+			lk.unlock();
+			conditionVariable.notify_all();
+		}
+		void Dec()
+		{
+			std::unique_lock<decltype(mutex)> lk(mutex);
+			if (value > 0)
+			{
+				--value;
+			}
+		}
+	};
+
+	struct ThreadData
+	{
+		Chances result;
+		std::vector<Test> block;
+		int_fast32_t blockFillCount;
+		std::mutex resultMutex;
+		std::thread thread;
+		Signal readyToProcess;
+	};
+
+	void WorkerThread(ThreadData& threadData)
+	{
+		threadData.readyToProcess.Wait();
+
+		Chances results;
+		for (const auto& test : threadData.block)
+		{
+			results += ProcessTest(test.playerCards, test.opponentCards, test.tableCards);
+		}
+
+		threadData.blockFillCount = 0;
+		threadData.readyToProcess.Clear();
+		mReadyToFill.Inc();
+
+		std::lock_guard<decltype(threadData.resultMutex)> lk(threadData.resultMutex);
+		threadData.result += results;
+	}
+
 	std::deque<ThreadData> mThreadData;
+	Semaphore mReadyToFill;
 	uint_fast32_t mNumThreads;
 	uint_fast32_t mThreadBlockSize;
 };
@@ -1540,10 +1663,8 @@ void ChanceCollector::Initialize(uint_fast32_t numPlayerCards, uint_fast32_t num
 	mThreadData.resize(mNumThreads);
 	for (auto& threadData : mThreadData)
 	{
-		threadData.chances.total = 0;
-		threadData.chances.winning = 0;
-		threadData.chances.split = 0;
 		threadData.block.resize(mThreadBlockSize);
+		threadData.blockFillCount = 0;
 		for (auto& test : threadData.block)
 		{
 			test.playerCards.resize(numPlayerCards);
@@ -1551,13 +1672,63 @@ void ChanceCollector::Initialize(uint_fast32_t numPlayerCards, uint_fast32_t num
 			test.tableCards.resize(numTableCards);
 		}
 	}
+
+	mReadyToFill.Set(mNumThreads);
+
+	for (auto& threadData : mThreadData)
+	{
+		threadData.thread = std::thread(&ChanceCollector::WorkerThread, this, std::ref(threadData));
+	}
 }
 
 void ChanceCollector::AddTest(const std::vector<Card>& playerCards, const std::vector<Card>& opponentCards, const std::vector<Card>& tableCards)
 {
+	mReadyToFill.Wait();
+	decltype(mThreadData.begin()) maxIt;
+	decltype(maxIt->blockFillCount) maxBlock = -1;
+	for (auto it = mThreadData.begin(); it != mThreadData.end(); ++it)
+	{
+		if (!it->readyToProcess.Check())
+		{
+			if (it->blockFillCount > maxBlock)
+			{
+				maxBlock = it->blockFillCount;
+				maxIt = it;
+			}
+		}
+	}
+	assert(maxBlock >= 0);
+	assert(maxBlock < mThreadBlockSize);
+	auto& test = maxIt->block[maxBlock];
+	assert(playerCards.size() == test.playerCards.size());
+	assert(opponentCards.size() == test.opponentCards.size());
+	assert(tableCards.size() == test.tableCards.size());
+	std::copy(playerCards.begin(), playerCards.end(), test.playerCards.begin());
+	std::copy(opponentCards.begin(), opponentCards.end(), test.opponentCards.begin());
+	std::copy(tableCards.begin(), tableCards.end(), test.tableCards.begin());
 
+	maxIt->blockFillCount++;
+	if (maxIt->blockFillCount == maxIt->block.size())
+	{
+		mReadyToFill.Dec();
+		maxIt->readyToProcess.Raise();
+	}
 }
 
+void ChanceCollector::JoinAll()
+{
+	for (auto& threadData : mThreadData)
+	{
+		if (!threadData.readyToProcess.Check())
+		{
+			threadData.block.resize(threadData.blockFillCount);
+			threadData.readyToProcess.Raise();
+		}
+		threadData.thread.join();
+	}
+}
+
+#define GETCHANCES_MT
 
 Chances GetChances(const std::vector<Card>& playerCards, const std::vector<Card>& opponentCards, const std::vector<Card>& tableCards)
 {
@@ -1585,6 +1756,11 @@ Chances GetChances(const std::vector<Card>& playerCards, const std::vector<Card>
 		* Combination(numCardsInDeck - knownTotalCards - missingPlayerCards - missingOpponentCards, missingTableCards);
 	chances.winning = 0;
 	chances.split = 0;
+
+#ifdef GETCHANCES_MT
+	ChanceCollector cc(12, 4096);
+	cc.Initialize(maxPlayerCards, maxOpponentCards, maxTableCards);
+#endif
 
 	std::vector<Card> innerTableCards(maxTableCards - tableCards.size());
 	innerTableCards.insert(innerTableCards.end(), tableCards.begin(), tableCards.end());
@@ -1685,6 +1861,9 @@ Chances GetChances(const std::vector<Card>& playerCards, const std::vector<Card>
 					}
 				}
 
+#ifdef GETCHANCES_MT
+				cc.AddTest(innerPlayerCards, innerOpponentCards, innerTableCards);
+#else
 				std::copy(innerPlayerCards.begin(), innerPlayerCards.end(), playerDeck.begin());
 				std::copy(innerTableCards.begin(), innerTableCards.end(), playerDeck.begin() + maxPlayerCards);
 				std::sort(playerDeck.begin(), playerDeck.end());
@@ -1706,6 +1885,7 @@ Chances GetChances(const std::vector<Card>& playerCards, const std::vector<Card>
 				//	printf("Hand type: %13s Hand: %s\n", ToString(GetHandType(&bestOpponentHand[0])).c_str(), ToString(&opponentDeck[0], 7).c_str());
 				//	printf("comparisonResult: %d\n", comparisonResult);
 				//}
+#endif // #ifdef GETCHANCES_MT
 
 			} while (std::next_permutation(tablePicker.begin(), tablePicker.end()));
 
@@ -1714,6 +1894,10 @@ Chances GetChances(const std::vector<Card>& playerCards, const std::vector<Card>
 	} while (std::next_permutation(playerPicker.begin(), playerPicker.end()));
 
 	printf("totalTries=%llu\n", totalTries);
+
+#ifdef GETCHANCES_MT
+	cc.JoinAll();
+#endif
 
 	return chances;
 }
