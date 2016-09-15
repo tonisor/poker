@@ -1497,13 +1497,60 @@ struct Chances
 static const int32_t numThreads = 8;
 static const int32_t handsPerThread = 2500;
 
+template <typename T>
+void FastCopy(
+	decltype(declval<std:vector<T>>().cbegin())& srcBegin, 
+	decltype(declval<std:vector<T>>().cend())& srcEnd, 
+	decltype(declval<std:vector<T>>().begin())& dst)
+{
+	static auto copy = [](auto v, const T* src, T* dst) {
+		typedef decltype(v) copy_t;
+		reinterpret_cast<copy_t&>(*dst) = reinterpret_cast<const copy_t&>(*src);
+	};
+
+	uint_fast32_t totalSize = (srcEnd - srcBegin) * sizeof(T);
+	while (totalSize > 8)
+	switch (totalSize)
+	{
+	case 1:
+		copy(int8_t(), srcBegin, dst);
+		break;
+	case 2:
+		copy(int16_t(), srcBegin, dst);
+		break;
+	case 3:
+		copy(int16_t(), srcBegin, dst);
+		copy(int8_t(), srcBegin + 2, dst + 2);
+		break;
+	case 4:
+		copy(int32_t(), srcBegin, dst);
+		break;
+	case 5:
+		copy(int32_t(), srcBegin, dst);
+		copy(int8_t(), srcBegin + 4, dst + 4);
+		break;
+	case 6:
+		copy(int32_t(), srcBegin, dst);
+		copy(int16_t(), srcBegin + 4, dst + 4);
+		break;
+	case 7:
+		copy(int32_t(), srcBegin, dst);
+		copy(int16_t(), srcBegin + 4, dst + 4);
+		copy(int8_t(), srcBegin + 6, dst + 6);
+		break;
+	case 8:
+		copy(int64_t(), srcBegin, dst);
+		break;
+	}
+}
+
 static Chances ProcessTest(const std::vector<Card>& playerCards, const std::vector<Card>& opponentCards, const std::vector<Card>& tableCards)
 {
-	Card bestPlayerHand[5];
-	Card bestOpponentHand[5];
+	thread_local Card bestPlayerHand[5];
+	thread_local Card bestOpponentHand[5];
 
-	std::vector<Card> playerDeck(playerCards.size() + tableCards.size());
-	std::vector<Card> opponentDeck(opponentCards.size() + tableCards.size());
+	thread_local std::vector<Card> playerDeck(playerCards.size() + tableCards.size());
+	thread_local std::vector<Card> opponentDeck(opponentCards.size() + tableCards.size());
 
 	std::copy(playerCards.begin(), playerCards.end(), playerDeck.begin());
 	std::copy(tableCards.begin(), tableCards.end(), playerDeck.begin() + playerCards.size());
@@ -1517,10 +1564,10 @@ static Chances ProcessTest(const std::vector<Card>& playerCards, const std::vect
 
 	const auto comparisonResult = CompareHands(bestPlayerHand, bestOpponentHand);
 
-	Chances chances;
+	thread_local Chances chances;
 	chances.total = 1;
-	chances.winning += (comparisonResult == 1) ? 1 : 0;
-	chances.split += (comparisonResult == 0) ? 1 : 0;
+	chances.winning = (comparisonResult == 1) ? 1 : 0;
+	chances.split = (comparisonResult == 0) ? 1 : 0;
 
 	return chances;
 }
@@ -1533,6 +1580,7 @@ public:
 
 	void Initialize(uint_fast32_t numPlayerCards, uint_fast32_t numOpponentCards, uint_fast32_t numTableCards);
 	void JoinAll();
+	Chances GetResult() const;
 
 	void AddTest(const std::vector<Card>& playerCards, const std::vector<Card>& opponentCards, const std::vector<Card>& tableCards);
 
@@ -1626,22 +1674,28 @@ private:
 		Signal readyToProcess;
 	};
 
-	void WorkerThread(ThreadData& threadData)
+	void WorkerThread(ThreadData& threadData, uint_fast32_t threadBlockSize)
 	{
-		threadData.readyToProcess.Wait();
-
-		Chances results;
-		for (const auto& test : threadData.block)
+		bool notFinished = true;
+		while (notFinished)
 		{
-			results += ProcessTest(test.playerCards, test.opponentCards, test.tableCards);
+			threadData.readyToProcess.Wait();
+
+			Chances results;
+			for (const auto& test : threadData.block)
+			{
+				results += ProcessTest(test.playerCards, test.opponentCards, test.tableCards);
+			}
+
+			notFinished = threadData.block.size() == threadBlockSize;
+
+			threadData.blockFillCount = 0;
+			threadData.readyToProcess.Clear();
+			mReadyToFill.Inc();
+
+			std::lock_guard<decltype(threadData.resultMutex)> lk(threadData.resultMutex);
+			threadData.result += results;
 		}
-
-		threadData.blockFillCount = 0;
-		threadData.readyToProcess.Clear();
-		mReadyToFill.Inc();
-
-		std::lock_guard<decltype(threadData.resultMutex)> lk(threadData.resultMutex);
-		threadData.result += results;
 	}
 
 	std::deque<ThreadData> mThreadData;
@@ -1677,7 +1731,7 @@ void ChanceCollector::Initialize(uint_fast32_t numPlayerCards, uint_fast32_t num
 
 	for (auto& threadData : mThreadData)
 	{
-		threadData.thread = std::thread(&ChanceCollector::WorkerThread, this, std::ref(threadData));
+		threadData.thread = std::thread(&ChanceCollector::WorkerThread, this, std::ref(threadData), mThreadBlockSize);
 	}
 }
 
@@ -1719,13 +1773,25 @@ void ChanceCollector::JoinAll()
 {
 	for (auto& threadData : mThreadData)
 	{
-		if (!threadData.readyToProcess.Check())
+		while (threadData.readyToProcess.Check());
 		{
 			threadData.block.resize(threadData.blockFillCount);
 			threadData.readyToProcess.Raise();
 		}
+	}
+
+	for (auto& threadData : mThreadData)
+	{
 		threadData.thread.join();
 	}
+}
+
+Chances ChanceCollector::GetResult() const
+{
+	Chances result;
+	for (auto& threadData : mThreadData)
+		result += threadData.result;
+	return result;
 }
 
 #define GETCHANCES_MT
@@ -1862,6 +1928,7 @@ Chances GetChances(const std::vector<Card>& playerCards, const std::vector<Card>
 				}
 
 #ifdef GETCHANCES_MT
+				++totalTries;
 				cc.AddTest(innerPlayerCards, innerOpponentCards, innerTableCards);
 #else
 				std::copy(innerPlayerCards.begin(), innerPlayerCards.end(), playerDeck.begin());
@@ -1897,6 +1964,8 @@ Chances GetChances(const std::vector<Card>& playerCards, const std::vector<Card>
 
 #ifdef GETCHANCES_MT
 	cc.JoinAll();
+
+	return cc.GetResult();
 #endif
 
 	return chances;
@@ -1987,7 +2056,7 @@ void main()
 	//printf("Hand type: %s Hand: %s\n", ToString(GetHandType(&bestHand[0])).c_str(), ToString(&bestHand[0], 5).c_str());
 
 	Chronometer ch(true);
-	const auto& chances = GetChances({"As", "Kh"}, {"Ah", "Ks"}, {});
+	const auto& chances = GetChances({"Kh"}, {"Ah"}, {"4d", "5h"});
 	printf("Time: %f\n", ch.GetElapsedTimeMs());
 
 	printf("Chances.total=%llu\n",chances.total);
