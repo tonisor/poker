@@ -16,6 +16,7 @@
 #include <mutex>
 #include <deque>
 #include <array>
+#include <limits>
 
 #define MIN(a,b) ( (a) < (b) ? (a) : (b) )
 #define MAX(a,b) ( (a) > (b) ? (a) : (b) )
@@ -113,13 +114,20 @@ struct Card
 	Card(const char* card) : color(CharToCardColor(card[1])), value(CharToCardValue(card[0])) {}
 	CardColor color : 2;
 	CardValue value : 4;
-	bool operator<(Card c) const
+	bool operator<(const Card c) const
 	{
 		return value < c.value;
 	}
-	bool operator==(Card c) const
+	bool operator==(const Card c) const
 	{
 		return color == c.color && value == c.value;
+	}
+	static bool LessWithColor(const Card c1, const Card c2)
+	{
+		static auto totalValue = [](const Card c) {
+			return (uint_fast8_t(c.value) << 2) + uint_fast8_t(c.color);
+		};
+		return totalValue(c1) < totalValue(c2);
 	}
 	std::string ToString() const
 	{
@@ -325,7 +333,6 @@ int CompareHands( byte hand1[5], byte hand2[5] )
 		if (v1 > v2)
 			return -1;
 		return 0;
-		return 0;
 	}
 
 	if( ht1 == HandType::FourOfAKind || ht1 == HandType::FullHouse ){
@@ -499,6 +506,8 @@ int CompareHands( byte hand1[5], byte hand2[5] )
 
 		return 0;
 	}
+
+	return (std::numeric_limits<int>::min)();
 }
 
 int CompareHands(const Card hand1[5], const Card hand2[5])
@@ -708,6 +717,8 @@ int CompareHands(const Card hand1[5], const Card hand2[5])
 
 			return 0;
 		}
+	default:
+		return (std::numeric_limits<int>::min)();
 	}
 }
 
@@ -772,12 +783,12 @@ void SaveAllHandsToFile()
 	byte cards[5];
 	HandType ht;
 	int kHand = 0;
-	char sHand[19];
+	//char sHand[19];
 	int stats[9];
 
 	memset( stats, 0, 9 * sizeof(int) );
 
-	FILE *f;
+	//FILE *f;
 	//fopen_s( &f, "C:\\poker.txt", "wt" );
 
 	for( byte k0 = 0; k0 < 48; k0++ )
@@ -808,8 +819,8 @@ void SaveAllHandsToFile()
 	for( byte i = 0; i < 9; i++ )
 		printf( "%d %d\n", i, stats[i] );
 
-	int x;
-	scanf_s("%d", &x);
+	char x;
+	scanf_s("%c", &x, 1);
 
 	//fclose( f );
 }
@@ -1196,7 +1207,7 @@ void GameOn()
 				float r = (float)rand() / (1 << 15);
 				int bet;
 				if( r <= fWin + fDraw ){
-					bet = r / (fWin + fDraw) * pot;
+					bet = int(r / (fWin + fDraw) * pot);
 					bet = MAX(bet, 10);
 				}
 				else
@@ -1272,7 +1283,7 @@ void GameOn()
 					float r = (float)rand() / (1 << 15);
 					int bet;
 					if( r <= fWin + fDraw ){
-						bet = r / (fWin + fDraw) * pot;
+						bet = int(r / (fWin + fDraw) * pot);
 						bet = MAX(bet, 10);
 					}
 					else{
@@ -1316,7 +1327,7 @@ void GameOn()
 					else if( r > .7f )
 						bet = 2 * minBet;
 					else
-						bet = 2 * minBet + (2 * r * minBet);
+						bet = int(2 * minBet + (2 * r * minBet));
 					bet = MIN( bet, stack[0] );
 					stack[0] -= bet;
 					pot += bet;
@@ -1394,7 +1405,7 @@ void GameOn()
 	}
 
 	int x;
-	scanf( "%d", &x);
+	scanf_s( "%d", &x);
 }
 
 DWORD WINAPI tetsf( LPVOID zzz )
@@ -1756,7 +1767,7 @@ void ChanceCollector<NumPlayerCards, NumOpponentCards, NumTableCards>::AddTest(
 		}
 	}
 	assert(maxBlock >= 0);
-	assert(maxBlock < mThreadBlockSize);
+	assert((int32_t)maxBlock < (int32_t)mThreadBlockSize);
 	auto& test = maxIt->block[maxBlock];
 	assert(playerCards.size() == test.playerCards.size());
 	assert(opponentCards.size() == test.opponentCards.size());
@@ -1809,7 +1820,7 @@ Chances GetChances(const std::vector<Card>& playerCards, const std::vector<Card>
 	assert(opponentCards.size() <= NumOpponentCards);
 	assert(tableCards.size() <= NumTableCards);
 
-	const int32_t numCardsInDeck = static_cast<int32_t>(CardColor::Count) * static_cast<int32_t>(CardValue::Count);
+	constexpr auto numCardsInDeck = static_cast<int32_t>(CardColor::Count) * static_cast<int32_t>(CardValue::Count);
 
 	const int32_t numPlayerCards = playerCards.size();
 	const int32_t numOpponentCards = opponentCards.size();
@@ -1835,49 +1846,50 @@ Chances GetChances(const std::vector<Card>& playerCards, const std::vector<Card>
 	cc.Initialize();
 #endif
 
-	std::array<Card, NumTableCards> innerTableCards;
-	std::copy(tableCards.cbegin(), tableCards.cend(), innerTableCards.begin() + NumTableCards - tableCards.size());
-
 	std::array<Card, NumPlayerCards + NumTableCards> playerDeck;
 	std::array<Card, NumOpponentCards + NumTableCards> opponentDeck;
 
 	std::array<Card, 5> bestPlayerHand;
 	std::array<Card, 5> bestOpponentHand;
 
-	std::vector<Card> knownCards;
-	knownCards.insert(knownCards.end(), playerCards.cbegin(), playerCards.cend());
-	knownCards.insert(knownCards.end(), opponentCards.cbegin(), opponentCards.cend());
-	knownCards.insert(knownCards.end(), tableCards.cbegin(), tableCards.cend());
-	assert(knownCards.size() == knownTotalCards);
+	std::vector<Card> knownCards(knownTotalCards);
+	std::copy(playerCards.cbegin(), playerCards.cend(), knownCards.begin());
+	std::copy(opponentCards.cbegin(), opponentCards.cend(), knownCards.begin() + numPlayerCards);
+	std::copy(tableCards.cbegin(), tableCards.cend(), knownCards.begin() + (numPlayerCards + numOpponentCards));
+	std::sort(knownCards.begin(), knownCards.end(), Card::LessWithColor);
 
-	std::vector<Card> playerOptions;
-	for (int32_t i = 0; i < numCardsInDeck; ++i)
-	{
-		Card c(i);
-		if (knownCards.end() == std::find_if(knownCards.begin(), knownCards.end(), [c](Card vc) { return vc == c; }))
-		{
-			playerOptions.push_back(c);
-		}
-	}
-	//assert(playerOptions.size() == 48);
+	std::vector<Card> deckCards(numCardsInDeck);
+	int32_t cardGenerator = 0;
+	std::generate(deckCards.begin(), deckCards.end(), [&cardGenerator]() { return Card(cardGenerator++); });
 
-	std::vector<int32_t> playerPicker(playerOptions.size());
+	std::vector<Card> playerOptions(numCardsInDeck - knownTotalCards);
+	std::vector<Card> opponentOptions(playerOptions.size() - missingPlayerCards);
+	std::vector<Card> tableOptions(opponentOptions.size() - missingOpponentCards);
+	std::set_difference(deckCards.cbegin(), deckCards.cend(), knownCards.cbegin(), knownCards.cend(), playerOptions.begin(), Card::LessWithColor);
+
+	std::vector<int_fast8_t> playerPicker(playerOptions.size());
+	std::vector<int_fast8_t> opponentPicker(opponentOptions.size());
+	std::vector<int_fast8_t> tablePicker(tableOptions.size());
+
 	std::fill(playerPicker.begin(), playerPicker.end() - missingPlayerCards, 0);
 	std::fill(playerPicker.end() - missingPlayerCards, playerPicker.end(), 1);
 
 	std::array<Card, NumPlayerCards> innerPlayerCards;
-	std::copy(playerCards.cbegin(), playerCards.cend(), innerPlayerCards.begin());
+	std::copy(playerCards.cbegin(), playerCards.cend(), innerPlayerCards.begin() + NumPlayerCards - playerCards.size());
 
 	std::array<Card, NumOpponentCards> innerOpponentCards;
-	std::copy(opponentCards.cbegin(), opponentCards.cend(), innerOpponentCards.begin());
+	std::copy(opponentCards.cbegin(), opponentCards.cend(), innerOpponentCards.begin() + NumOpponentCards - opponentCards.size());
+
+	std::array<Card, NumTableCards> innerTableCards;
+	std::copy(tableCards.cbegin(), tableCards.cend(), innerTableCards.begin() + NumTableCards - tableCards.size());
 
 	uintmax_t totalTries = 0;
 	do {
 		std::vector<Card> playerKnownCards;
 		playerKnownCards.insert(playerKnownCards.end(), knownCards.begin(), knownCards.end());
 
-		auto innerPlayerCardsIndex = numPlayerCards;
-		for (int32_t k = 0; k < playerOptions.size(); ++k)
+		int32_t innerPlayerCardsIndex = 0;
+		for (uint_fast32_t k = 0; k < playerOptions.size(); ++k)
 		{
 			if (playerPicker[k] != 0)
 			{
@@ -1886,18 +1898,9 @@ Chances GetChances(const std::vector<Card>& playerCards, const std::vector<Card>
 			}
 		}
 
-		std::vector<Card> opponentOptions;
-		for (int32_t i = 0; i < numCardsInDeck; ++i)
-		{
-			Card c(i);
-			if (playerKnownCards.end() == std::find_if(playerKnownCards.begin(), playerKnownCards.end(), [c](Card vc) { return vc == c; }))
-			{
-				opponentOptions.push_back(c);
-			}
-		}
-		//assert(opponentOptions.size() == 48);
+		std::sort(playerKnownCards.begin(), playerKnownCards.end(), Card::LessWithColor);
+		std::set_difference(deckCards.cbegin(), deckCards.cend(), playerKnownCards.cbegin(), playerKnownCards.cend(), opponentOptions.begin(), Card::LessWithColor);
 
-		std::vector<int32_t> opponentPicker(opponentOptions.size());
 		std::fill(opponentPicker.begin(), opponentPicker.end() - missingOpponentCards, 0);
 		std::fill(opponentPicker.end() - missingOpponentCards, opponentPicker.end(), 1);
 
@@ -1905,8 +1908,8 @@ Chances GetChances(const std::vector<Card>& playerCards, const std::vector<Card>
 			std::vector<Card> opponentKnownCards;
 			opponentKnownCards.insert(opponentKnownCards.end(), playerKnownCards.begin(), playerKnownCards.end());
 
-			auto innerPlayerCardsIndex = numOpponentCards;
-			for (int32_t k = 0; k < opponentOptions.size(); ++k)
+			int32_t innerPlayerCardsIndex = 0;
+			for (uint_fast32_t k = 0; k < opponentOptions.size(); ++k)
 			{
 				if (opponentPicker[k] != 0)
 				{
@@ -1915,24 +1918,15 @@ Chances GetChances(const std::vector<Card>& playerCards, const std::vector<Card>
 				}
 			}
 
-			std::vector<Card> tableOptions;
-			for (int32_t i = 0; i < numCardsInDeck; ++i)
-			{
-				Card c(i);
-				if (opponentKnownCards.end() == std::find_if(opponentKnownCards.begin(), opponentKnownCards.end(), [c](Card vc) { return vc == c; }))
-				{
-					tableOptions.push_back(c);
-				}
-			}
-			//assert(tableOptions.size() == 48);
+			std::sort(opponentKnownCards.begin(), opponentKnownCards.end(), Card::LessWithColor);
+			std::set_difference(deckCards.cbegin(), deckCards.cend(), opponentKnownCards.cbegin(), opponentKnownCards.cend(), tableOptions.begin(), Card::LessWithColor);
 
-			std::vector<int32_t> tablePicker(tableOptions.size());
 			std::fill(tablePicker.begin(), tablePicker.end() - missingTableCards, 0);
 			std::fill(tablePicker.end() - missingTableCards, tablePicker.end(), 1);
 
 			do {
 				int32_t innerTableCardsIndex = 0;
-				for (int32_t k = 0; k < tableOptions.size(); ++k)
+				for (uint_fast32_t k = 0; k < tableOptions.size(); ++k)
 				{
 					if (tablePicker[k] != 0)
 					{
@@ -2147,7 +2141,7 @@ void main()
 	//}
 
 	char cc;
-	scanf("%c", cc);
+	scanf_s("%c", &cc, 1);
 
 	return;
 #endif
