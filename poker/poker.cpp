@@ -17,6 +17,7 @@
 #include <deque>
 #include <array>
 #include <limits>
+#include <tuple>
 
 #define MIN(a,b) ( (a) < (b) ? (a) : (b) )
 #define MAX(a,b) ( (a) > (b) ? (a) : (b) )
@@ -1444,9 +1445,54 @@ void ReplaceIfBetter(std::array<Card, 5>& targetHand, const std::array<Card, 5>&
 	}
 }
 
+constexpr uintmax_t CombinationNum(uint32_t n, uint32_t k)
+{
+	return (k == 0) ? 1 : (n > k) ? n * CombinationNum(n - 1, k - 1) : 1;
+}
+
+constexpr uintmax_t Factorial(uint32_t n)
+{
+	return n <= 1 ? 1 : (n * Factorial(n - 1));
+}
+
+constexpr uintmax_t Combination(uint32_t n, uint32_t k)
+{
+	return (n - k < k) ? CombinationNum(n, n - k) / Factorial(n - k) : CombinationNum(n, k) / Factorial(k);
+}
+
+template <uint_fast8_t NumDeckCards> struct PermutationHelper;
+template <> struct PermutationHelper<7>
+{
+	static constexpr std::array<std::array<uint_fast8_t, 5>, Combination(7, 5)> value =
+	{
+		std::array<uint_fast8_t, 5>({ 2, 3, 4, 5, 6 }),
+		std::array<uint_fast8_t, 5>({ 1, 3, 4, 5, 6 }),
+		std::array<uint_fast8_t, 5>({ 1, 2, 4, 5, 6 }),
+		std::array<uint_fast8_t, 5>({ 1, 2, 3, 5, 6 }),
+		std::array<uint_fast8_t, 5>({ 1, 2, 3, 4, 6 }),
+		std::array<uint_fast8_t, 5>({ 1, 2, 3, 4, 5 }),
+		std::array<uint_fast8_t, 5>({ 0, 3, 4, 5, 6 }),
+		std::array<uint_fast8_t, 5>({ 0, 2, 4, 5, 6 }),
+		std::array<uint_fast8_t, 5>({ 0, 2, 3, 5, 6 }),
+		std::array<uint_fast8_t, 5>({ 0, 2, 3, 4, 6 }),
+		std::array<uint_fast8_t, 5>({ 0, 2, 3, 4, 5 }),
+		std::array<uint_fast8_t, 5>({ 0, 1, 4, 5, 6 }),
+		std::array<uint_fast8_t, 5>({ 0, 1, 3, 5, 6 }),
+		std::array<uint_fast8_t, 5>({ 0, 1, 3, 4, 6 }),
+		std::array<uint_fast8_t, 5>({ 0, 1, 3, 4, 5 }),
+		std::array<uint_fast8_t, 5>({ 0, 1, 2, 5, 6 }),
+		std::array<uint_fast8_t, 5>({ 0, 1, 2, 4, 6 }),
+		std::array<uint_fast8_t, 5>({ 0, 1, 2, 4, 5 }),
+		std::array<uint_fast8_t, 5>({ 0, 1, 2, 3, 6 }),
+		std::array<uint_fast8_t, 5>({ 0, 1, 2, 3, 5 }),
+		std::array<uint_fast8_t, 5>({ 0, 1, 2, 3, 4 })
+	};
+};
+
 template <uint_fast8_t NumDeckCards>
 void GetBestHand(const std::array<Card, NumDeckCards>& cards, std::array<Card, 5>& bestHand)
 {
+#if 1
 	constexpr auto numHandCards = std::tuple_size<std::decay_t<decltype(bestHand)>>::value;
 	constexpr auto numCards = NumDeckCards;
 	std::array<int_fast8_t, numCards> handPicker;
@@ -1473,29 +1519,28 @@ void GetBestHand(const std::array<Card, NumDeckCards>& cards, std::array<Card, 5
 		//printf("Hand type: %13s Hand: %s\n", ToString(GetHandType(&hand[0])).c_str(), ToString(&hand[0], 5).c_str());
 		ReplaceIfBetter(bestHand, hand);
 	}
-}
+#else
+	constexpr auto numHandCards = std::tuple_size<std::decay_t<decltype(bestHand)>>::value;
+	constexpr auto combinations = std::tuple_size<decltype(PermutationHelper<NumDeckCards>::value)>::value;
 
-uintmax_t Combination(uint32_t n, uint32_t k)
-{
-	if (n - k < k)
-	{
-		return Combination(n, n - k);
-	}
-	else
-	{
-		uintmax_t result = 1;
-		for (uint32_t i = 0; i < k; ++i)
-		{
-			result *= (n - i);
-		}
-		for (uint32_t i = 2; i <= k; ++i)
-		{
-			result /= i;
-		}
-		return result;
-	}
-}
+	bestHand[0] = cards[NumDeckCards - numHandCards];
+	bestHand[1] = cards[NumDeckCards - numHandCards + 1];
+	bestHand[2] = cards[NumDeckCards - numHandCards + 2];
+	bestHand[3] = cards[NumDeckCards - numHandCards + 3];
+	bestHand[4] = cards[NumDeckCards - numHandCards + 4];
 
+	std::decay_t<decltype(bestHand)> hand;
+	for (uint_fast32_t i = 0; i < combinations; ++i)
+	{
+		hand[0] = cards[PermutationHelper<NumDeckCards>::value[i][0]];
+		hand[1] = cards[PermutationHelper<NumDeckCards>::value[i][1]];
+		hand[2] = cards[PermutationHelper<NumDeckCards>::value[i][2]];
+		hand[3] = cards[PermutationHelper<NumDeckCards>::value[i][3]];
+		hand[4] = cards[PermutationHelper<NumDeckCards>::value[i][4]];
+		ReplaceIfBetter(bestHand, hand);
+	}
+#endif
+}
 
 struct Chances
 {
@@ -1842,7 +1887,7 @@ Chances GetChances(const std::vector<Card>& playerCards, const std::vector<Card>
 	chances.split = 0;
 
 #ifdef GETCHANCES_MT
-	ChanceCollector<NumPlayerCards, NumOpponentCards, NumTableCards> cc(12, 4096);
+	ChanceCollector<NumPlayerCards, NumOpponentCards, NumTableCards> cc(8, 512);
 	cc.Initialize();
 #endif
 
